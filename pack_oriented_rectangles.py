@@ -247,7 +247,12 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                         mrr_ang = 0.0
 
                     angles = [mrr_ang] if area > 5000.0 else list(set([0.0, mrr_ang, (mrr_ang + 45.0) % 180]))
-                    shifts = [(0.0, 0.0)] if area > 20000.0 else [(0.0, 0.0), (width / 2.0, length / 2.0)]
+                    shifts = [(0.0, 0.0)] if area > 20000.0 else [
+                        (0.0, 0.0),
+                        (width / 2.0, 0.0),
+                        (0.0, length / 2.0),
+                        (width / 2.0, length / 2.0)
+                    ]
 
                     grid_rects = self._find_best_grid(poly, width, length, angles, shifts)
 
@@ -314,7 +319,12 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                     sub_ang = 0.0
 
                                 test_angs = list(set([sub_ang, (sub_ang + 90.0) % 180, (sub_ang + 45.0) % 180, 0.0]))
-                                test_shifts = [(0.0, 0.0), (width / 2.0, length / 2.0)]
+                                test_shifts = [
+                                    (0.0, 0.0),
+                                    (width / 2.0, 0.0),
+                                    (0.0, length / 2.0),
+                                    (width / 2.0, length / 2.0)
+                                ]
 
                                 comp_rects = self._find_best_grid(comp, width, length, test_angs, test_shifts)
                                 if len(comp_rects) == 0:
