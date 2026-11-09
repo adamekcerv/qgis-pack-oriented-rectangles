@@ -6,7 +6,7 @@
 *   Solves the 2D polygon packing and nesting problem by determining      *
 *   optimal rotation angles from the minimum bounding geometry,           *
 *   testing orthogonal/diagonal orientations and grid phase offsets       *
-*   with optional greedy residual packing for absolute maximum capacity.  *
+*   with dense greedy residual packing for absolute maximum capacity.     *
 ***************************************************************************
 """
 
@@ -63,8 +63,8 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
             '1. Structured urban grid (Uniform orientation): Aligns all modules to the polygon\'s '
             'principal street/boundary axis with uniform orientation (recommended for realistic urban planning).\n'
             '2. Maximum greedy fill (Mixed orientations & residual pockets): After placing the primary grid, '
-            'iteratively analyzes remaining vacant pockets and residual wings to pack additional modules '
-            'under independent rotations (maximizes mathematical capacity, ideal for solar yards or parking).\n\n'
+            'iteratively analyzes remaining vacant pockets and residual wings using dense interior scanning and boundary-aligned '
+            'rotations to squeeze in the absolute maximum number of modules (ideal for maximum capacity estimation).\n\n'
             'Outputs:\n'
             '1. Evaluated polygons with capacity metrics (fits_module, module_count, grid_modules, greedy_modules, packed_area_m2, coverage_pct, capacity_category).\n'
             '2. Individual packed rectangle polygon geometries with placement classification (Grid vs Greedy).'
@@ -165,6 +165,89 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                             best_rects = list(valid_b)
 
         return best_rects
+
+    def _squeeze_pocket(self, comp, width, length):
+        """
+        Densely packs modules into irregular residual pockets by sampling
+        candidate positions along the eroded interior core and testing
+        boundary-aligned and cardinal orientations.
+        """
+        if comp is None or comp.is_empty:
+            return []
+        if not comp.is_valid:
+            comp = shapely.make_valid(comp)
+
+        all_placed = []
+        rem = comp
+
+        for _ in range(2):
+            if rem.is_empty or rem.area < (width * length):
+                break
+
+            core = rem.buffer(-width / 2.0)
+            if core.is_empty:
+                break
+            if not core.is_valid:
+                core = shapely.make_valid(core)
+
+            coords = []
+            if rem.geom_type == 'Polygon':
+                coords.extend(list(rem.exterior.coords))
+            elif rem.geom_type == 'MultiPolygon':
+                for g in rem.geoms:
+                    coords.extend(list(g.exterior.coords))
+
+            candidate_angs = [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0, 165.0]
+            if len(coords) > 1:
+                c_arr = np.array(coords)
+                diffs = c_arr[1:] - c_arr[:-1]
+                raw_angs = np.degrees(np.arctan2(diffs[:, 1], diffs[:, 0])) % 180
+                edge_angs = [round(a, 0) for a in raw_angs if not np.isnan(a)]
+                candidate_angs = sorted(list(set(candidate_angs + edge_angs)))
+
+            cbx1, cby1, cbx2, cby2 = core.bounds
+            step = 2.0 if rem.area > 500.0 else 1.5
+            xs = np.arange(cbx1, cbx2 + step, step)
+            ys = np.arange(cby1, cby2 + step, step)
+            if len(xs) == 0 or len(ys) == 0:
+                break
+
+            xv, yv = np.meshgrid(xs, ys)
+            pts = shapely.points(xv.ravel(), yv.ravel())
+            try:
+                valid_pts = pts[shapely.contains(core, pts)]
+            except Exception:
+                valid_pts = pts[shapely.contains(shapely.make_valid(core), pts)]
+
+            placed_this_pass = []
+            for pt in valid_pts:
+                px, py = pt.x, pt.y
+                fits_pt = False
+                for ang in candidate_angs:
+                    for w, l in [(width, length), (length, width)]:
+                        b = shapely.box(px - w/2.0, py - l/2.0, px + w/2.0, py + l/2.0)
+                        if ang != 0.0:
+                            b = affinity.rotate(b, ang, origin=(px, py))
+                        try:
+                            fits = rem.contains(b)
+                        except Exception:
+                            fits = shapely.make_valid(rem).contains(b)
+                        if fits:
+                            placed_this_pass.append(b)
+                            all_placed.append(b)
+                            try:
+                                rem = rem.difference(b.buffer(0.01))
+                            except Exception:
+                                rem = shapely.make_valid(rem).difference(shapely.make_valid(b.buffer(0.01)))
+                            fits_pt = True
+                            break
+                    if fits_pt:
+                        break
+
+            if len(placed_this_pass) == 0:
+                break
+
+        return all_placed
 
     def processAlgorithm(self, parameters, context, feedback):
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -273,91 +356,60 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                 break
 
                     # Mode 1: Maximum Greedy Fill in residual pockets
-                    if mode == 1 and len(grid_rects) > 0:
+                    if mode == 1:
                         all_placed = list(grid_rects)
-                        try:
-                            residual = poly.difference(shapely.unary_union(grid_rects))
+                        if len(all_placed) > 0:
+                            try:
+                                residual = poly.difference(shapely.unary_union(all_placed))
+                            except Exception:
+                                residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(all_placed)))
                             if not residual.is_valid:
                                 residual = shapely.make_valid(residual)
-                        except Exception:
-                            residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(grid_rects)))
+                        else:
+                            residual = poly
 
-                        max_passes = 3 if area > 5000.0 else 5
-                        for _ in range(max_passes):
-                            if residual.is_empty or residual.area < module_area:
-                                break
-                            if not residual.is_valid:
-                                residual = shapely.make_valid(residual)
+                        if residual.geom_type == 'Polygon':
+                            sub_geoms = [residual]
+                        elif residual.geom_type == 'MultiPolygon':
+                            sub_geoms = list(residual.geoms)
+                        elif residual.geom_type == 'GeometryCollection':
+                            sub_geoms = [g for g in residual.geoms if g.geom_type == 'Polygon']
+                        else:
+                            sub_geoms = []
 
-                            if residual.geom_type == 'Polygon':
-                                sub_geoms = [residual]
-                            elif residual.geom_type == 'MultiPolygon':
-                                sub_geoms = list(residual.geoms)
-                            elif residual.geom_type == 'GeometryCollection':
-                                sub_geoms = [g for g in residual.geoms if g.geom_type == 'Polygon']
-                            else:
-                                sub_geoms = []
-
-                            placed_in_pass = []
-                            for comp in sorted(sub_geoms, key=lambda g: g.area, reverse=True):
-                                if comp.area < module_area:
-                                    continue
-                                if not comp.is_valid:
-                                    comp = shapely.make_valid(comp)
-                                    if comp.geom_type != 'Polygon':
-                                        continue
-
-                                c_core = comp.buffer(-width / 2.0)
-                                if c_core.is_empty:
+                        for comp in sorted(sub_geoms, key=lambda g: g.area, reverse=True):
+                            if comp.area < module_area:
+                                continue
+                            if not comp.is_valid:
+                                comp = shapely.make_valid(comp)
+                                if comp.geom_type != 'Polygon':
                                     continue
 
+                            # Fast grid fill for large residual sections (> 1000 m2)
+                            if comp.area > 1000.0:
                                 m_sub = comp.minimum_rotated_rectangle
                                 if m_sub.geom_type == 'Polygon' and len(m_sub.exterior.coords) >= 4:
                                     sc = m_sub.exterior.coords
                                     sub_ang = float(np.degrees(np.arctan2(sc[1][1] - sc[0][1], sc[1][0] - sc[0][0])) % 180)
                                 else:
                                     sub_ang = 0.0
+                                comp_grid = self._find_best_grid(
+                                    comp, width, length,
+                                    [sub_ang, (sub_ang + 90.0) % 180, 0.0],
+                                    [(0, 0), (width / 2.0, length / 2.0)]
+                                )
+                                if len(comp_grid) > 0:
+                                    greedy_rects.extend(comp_grid)
+                                    try:
+                                        comp = comp.difference(shapely.unary_union(comp_grid))
+                                    except Exception:
+                                        comp = shapely.make_valid(comp).difference(shapely.make_valid(shapely.unary_union(comp_grid)))
 
-                                test_angs = list(set([sub_ang, (sub_ang + 90.0) % 180, (sub_ang + 45.0) % 180, 0.0]))
-                                test_shifts = [
-                                    (0.0, 0.0),
-                                    (width / 2.0, 0.0),
-                                    (0.0, length / 2.0),
-                                    (width / 2.0, length / 2.0)
-                                ]
-
-                                comp_rects = self._find_best_grid(comp, width, length, test_angs, test_shifts)
-                                if len(comp_rects) == 0:
-                                    for pt in [c_core.centroid, c_core.representative_point()]:
-                                        for ang in [0.0, sub_ang, (sub_ang + 45.0) % 180, (sub_ang + 90.0) % 180]:
-                                            for w, l in [(width, length), (length, width)]:
-                                                b = shapely.box(pt.x - w/2.0, pt.y - l/2.0, pt.x + w/2.0, pt.y + l/2.0)
-                                                if ang != 0.0:
-                                                    b = affinity.rotate(b, ang, origin=(pt.x, pt.y))
-                                                try:
-                                                    if comp.contains(b):
-                                                        comp_rects = [b]
-                                                        break
-                                                except Exception:
-                                                    if shapely.make_valid(comp).contains(b):
-                                                        comp_rects = [b]
-                                                        break
-                                            if len(comp_rects) > 0:
-                                                break
-                                        if len(comp_rects) > 0:
-                                            break
-
-                                if len(comp_rects) > 0:
-                                    placed_in_pass.extend(comp_rects)
-
-                            if len(placed_in_pass) == 0:
-                                break
-                            greedy_rects.extend(placed_in_pass)
-                            all_placed.extend(placed_in_pass)
-                            try:
-                                residual = poly.difference(shapely.unary_union(all_placed))
-                            except Exception:
-                                residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(all_placed)))
+                            # Dense core sampling squeezer for irregular pockets
+                            if comp.area >= module_area:
+                                squeezed = self._squeeze_pocket(comp, width, length)
+                                if len(squeezed) > 0:
+                                    greedy_rects.extend(squeezed)
 
             grid_cnt = len(grid_rects)
             greedy_cnt = len(greedy_rects)
