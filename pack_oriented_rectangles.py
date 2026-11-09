@@ -121,12 +121,20 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
         )
 
     def _find_best_grid(self, p, width, length, angles, shifts):
+        if p is None or p.is_empty:
+            return []
+        if not p.is_valid:
+            p = shapely.make_valid(p)
+
         minx, miny, maxx, maxy = p.bounds
         cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
         best_rects = []
 
         for ang in angles:
             p_rot = affinity.rotate(p, -ang, origin=(cx, cy)) if ang != 0.0 else p
+            if not p_rot.is_valid:
+                p_rot = shapely.make_valid(p_rot)
+
             bx1, by1, bx2, by2 = p_rot.bounds
 
             for w, l in [(width, length), (length, width)]:
@@ -137,7 +145,16 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                         continue
                     xv, yv = np.meshgrid(xs, ys)
                     b_arr = shapely.box(xv.ravel(), yv.ravel(), (xv + w).ravel(), (yv + l).ravel())
-                    contained = shapely.contains(p_rot, b_arr)
+                    
+                    try:
+                        contained = shapely.contains(p_rot, b_arr)
+                    except Exception:
+                        p_rot_c = shapely.make_valid(p_rot.buffer(0))
+                        try:
+                            contained = shapely.contains(p_rot_c, b_arr)
+                        except Exception:
+                            continue
+
                     if not np.any(contained):
                         continue
                     valid_b = b_arr[contained]
@@ -205,8 +222,10 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
             if geom.isEmpty():
                 continue
 
-            # Convert QGIS geometry to Shapely via WKT
-            poly = shapely.from_wkt(geom.asWkt())
+            # Convert QGIS geometry to Shapely via WKT and sanitize
+            poly = shapely.force_2d(shapely.from_wkt(geom.asWkt()))
+            if not poly.is_valid:
+                poly = shapely.make_valid(poly)
             area = poly.area
 
             grid_rects = []
@@ -227,17 +246,10 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                     else:
                         mrr_ang = 0.0
 
-                    if area > 20000.0:
-                        test_angles = [mrr_ang]
-                        shifts = [(0.0, 0.0)]
-                    elif area > 5000.0:
-                        test_angles = [mrr_ang]
-                        shifts = [(0.0, 0.0), (width / 2.0, length / 2.0)]
-                    else:
-                        test_angles = list(set([0.0, mrr_ang, (mrr_ang + 45.0) % 180]))
-                        shifts = [(0.0, 0.0), (width / 2.0, length / 2.0)]
+                    angles = [mrr_ang] if area > 5000.0 else list(set([0.0, mrr_ang, (mrr_ang + 45.0) % 180]))
+                    shifts = [(0.0, 0.0)] if area > 20000.0 else [(0.0, 0.0), (width / 2.0, length / 2.0)]
 
-                    grid_rects = self._find_best_grid(poly, width, length, test_angles, shifts)
+                    grid_rects = self._find_best_grid(poly, width, length, angles, shifts)
 
                     # Centroid/representative point fallback for tight parcels
                     if len(grid_rects) == 0:
@@ -256,20 +268,40 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                 break
 
                     # Mode 1: Maximum Greedy Fill in residual pockets
-                    if mode == 1:
+                    if mode == 1 and len(grid_rects) > 0:
                         all_placed = list(grid_rects)
-                        residual = poly.difference(shapely.unary_union(grid_rects)) if len(grid_rects) > 0 else poly
+                        try:
+                            residual = poly.difference(shapely.unary_union(grid_rects))
+                            if not residual.is_valid:
+                                residual = shapely.make_valid(residual)
+                        except Exception:
+                            residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(grid_rects)))
 
-                        for _ in range(15):
+                        max_passes = 3 if area > 5000.0 else 5
+                        for _ in range(max_passes):
                             if residual.is_empty or residual.area < module_area:
                                 break
-                            sub_geoms = [residual] if residual.geom_type == 'Polygon' else [
-                                g for g in getattr(residual, 'geoms', []) if g.geom_type == 'Polygon'
-                            ]
+                            if not residual.is_valid:
+                                residual = shapely.make_valid(residual)
+
+                            if residual.geom_type == 'Polygon':
+                                sub_geoms = [residual]
+                            elif residual.geom_type == 'MultiPolygon':
+                                sub_geoms = list(residual.geoms)
+                            elif residual.geom_type == 'GeometryCollection':
+                                sub_geoms = [g for g in residual.geoms if g.geom_type == 'Polygon']
+                            else:
+                                sub_geoms = []
+
                             placed_in_pass = []
                             for comp in sorted(sub_geoms, key=lambda g: g.area, reverse=True):
                                 if comp.area < module_area:
                                     continue
+                                if not comp.is_valid:
+                                    comp = shapely.make_valid(comp)
+                                    if comp.geom_type != 'Polygon':
+                                        continue
+
                                 c_core = comp.buffer(-width / 2.0)
                                 if c_core.is_empty:
                                     continue
@@ -281,8 +313,8 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                 else:
                                     sub_ang = 0.0
 
-                                test_angs = list(set([sub_ang, (sub_ang + 90.0) % 180, (sub_ang + 45.0) % 180, 0.0, 15.0, 30.0, 60.0, 75.0]))
-                                test_shifts = [(0.0, 0.0), (width / 3.0, length / 3.0), (width / 2.0, length / 2.0), (2.0 * width / 3.0, 2.0 * length / 3.0)]
+                                test_angs = list(set([sub_ang, (sub_ang + 90.0) % 180, (sub_ang + 45.0) % 180, 0.0]))
+                                test_shifts = [(0.0, 0.0), (width / 2.0, length / 2.0)]
 
                                 comp_rects = self._find_best_grid(comp, width, length, test_angs, test_shifts)
                                 if len(comp_rects) == 0:
@@ -292,9 +324,14 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                                 b = shapely.box(pt.x - w/2.0, pt.y - l/2.0, pt.x + w/2.0, pt.y + l/2.0)
                                                 if ang != 0.0:
                                                     b = affinity.rotate(b, ang, origin=(pt.x, pt.y))
-                                                if comp.contains(b):
-                                                    comp_rects = [b]
-                                                    break
+                                                try:
+                                                    if comp.contains(b):
+                                                        comp_rects = [b]
+                                                        break
+                                                except Exception:
+                                                    if shapely.make_valid(comp).contains(b):
+                                                        comp_rects = [b]
+                                                        break
                                             if len(comp_rects) > 0:
                                                 break
                                         if len(comp_rects) > 0:
@@ -307,7 +344,10 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                 break
                             greedy_rects.extend(placed_in_pass)
                             all_placed.extend(placed_in_pass)
-                            residual = poly.difference(shapely.unary_union(all_placed))
+                            try:
+                                residual = poly.difference(shapely.unary_union(all_placed))
+                            except Exception:
+                                residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(all_placed)))
 
             grid_cnt = len(grid_rects)
             greedy_cnt = len(greedy_rects)
