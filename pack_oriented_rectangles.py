@@ -102,7 +102,7 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                     self.tr('Structured urban grid (Uniform orientation)'),
                     self.tr('Maximum greedy fill (Mixed orientations & residual pockets)')
                 ],
-                defaultValue=0
+                defaultValue=1
             )
         )
         self.addParameter(
