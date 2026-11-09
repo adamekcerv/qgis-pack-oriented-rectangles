@@ -18,6 +18,7 @@ from qgis.core import (
     QgsProcessingParameterDistance,
     QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSink,
+    QgsFeatureSink,
     QgsFeature,
     QgsField,
     QgsFields,
