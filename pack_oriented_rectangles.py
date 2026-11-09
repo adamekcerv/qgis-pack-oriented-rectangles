@@ -219,33 +219,47 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
             except Exception:
                 valid_pts = pts[shapely.contains(shapely.make_valid(core), pts)]
 
-            placed_this_pass = []
-            for pt in valid_pts:
-                px, py = pt.x, pt.y
-                fits_pt = False
-                for ang in candidate_angs:
-                    for w, l in [(width, length), (length, width)]:
-                        b = shapely.box(px - w/2.0, py - l/2.0, px + w/2.0, py + l/2.0)
-                        if ang != 0.0:
-                            b = affinity.rotate(b, ang, origin=(px, py))
-                        try:
-                            fits = rem.contains(b)
-                        except Exception:
-                            fits = shapely.make_valid(rem).contains(b)
-                        if fits:
-                            placed_this_pass.append(b)
-                            all_placed.append(b)
-                            try:
-                                rem = rem.difference(b.buffer(0.01))
-                            except Exception:
-                                rem = shapely.make_valid(rem).difference(shapely.make_valid(b.buffer(0.01)))
-                            fits_pt = True
-                            break
-                    if fits_pt:
-                        break
+            # Multi-direction ordering to prioritize tight pockets, roofs, and corners
+            orderings = [valid_pts, valid_pts[::-1], sorted(valid_pts, key=lambda p: -p.y)] if comp.area < 2000.0 else [valid_pts]
 
-            if len(placed_this_pass) == 0:
+            best_pass_placed = []
+            best_pass_rem = rem
+
+            for o_pts in orderings:
+                test_rem = rem
+                placed_this_pass = []
+                for pt in o_pts:
+                    px, py = pt.x, pt.y
+                    fits_pt = False
+                    for ang in candidate_angs:
+                        for w, l in [(width, length), (length, width)]:
+                            b = shapely.box(px - w/2.0, py - l/2.0, px + w/2.0, py + l/2.0)
+                            if ang != 0.0:
+                                b = affinity.rotate(b, ang, origin=(px, py))
+                            try:
+                                fits = test_rem.contains(b)
+                            except Exception:
+                                fits = shapely.make_valid(test_rem).contains(b)
+                            if fits:
+                                placed_this_pass.append(b)
+                                try:
+                                    test_rem = test_rem.difference(b.buffer(0.01))
+                                except Exception:
+                                    test_rem = shapely.make_valid(test_rem).difference(shapely.make_valid(b.buffer(0.01)))
+                                fits_pt = True
+                                break
+                        if fits_pt:
+                            break
+
+                if len(placed_this_pass) > len(best_pass_placed):
+                    best_pass_placed = placed_this_pass
+                    best_pass_rem = test_rem
+
+            if len(best_pass_placed) == 0:
                 break
+
+            all_placed.extend(best_pass_placed)
+            rem = best_pass_rem
 
         return all_placed
 
