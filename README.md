@@ -11,7 +11,7 @@ It automatically finds the natural orientation of each polygon, evaluates candid
 
 ---
 
-## 🎯 The Problem & Why Standard QGIS Tools Fall Short
+## The Problem and Why Standard QGIS Tools Fall Short
 
 Standard GIS tools such as `Create Grid` or `Fishnet` generate fixed, static, axis-aligned grids across a bounding box. When applied to real-world cadastral parcels, urban infill sites, or irregular boundaries:
 - Standard grids ignore the parcel's natural street line or principal orientation.
@@ -21,28 +21,28 @@ Standard GIS tools such as `Create Grid` or `Fishnet` generate fixed, static, ax
 ### The Solution:
 `pack_oriented_rectangles.py` runs an **adaptive optimization loop per feature**:
 1. Computes the **Minimum Rotated Bounding Rectangle (MRR)** to discover the parcel's principal orientation axis.
-2. Explores multiple candidate rotations: principal axis, transverse ($90^\circ$), coordinate axis ($0^\circ$), and diagonal ($45^\circ$).
+2. Explores multiple candidate rotations: principal axis, transverse (90 degrees), coordinate axis (0 degrees), and diagonal (45 degrees).
 3. Evaluates spatial sub-grid phase offsets (e.g., shifting by half-width / half-length) to avoid corner clipping.
 4. Uses strict interior containment (`contains`) to guarantee zero parcel boundary overhang.
-5. Selects the configuration that yields the **global maximum module count** ($\max N$) for each individual feature.
+5. Selects the configuration that yields the **global maximum module count** (max N) for each individual feature.
 
 ```
        Standard Axis-Aligned Grid                     Adaptive Oriented Packing (This Tool)
-   ┌────────────────────────────────┐            ┌────────────────────────────────┐
-   │         /───────────/          │            │         /───────────/          │
-   │        /  [X]   [X]/           │            │        / [■] [■] [■]/          │
-   │       /   [X]     /            │   ===>     │       / [■] [■] [■]/           │
-   │      /___________/             │            │      /___________/             │
-   │   (clips boundaries = 0 fit)   │            │   (aligned to axis = 6 fit)    │
-   └────────────────────────────────┘            └────────────────────────────────┘
+   +--------------------------------+            +--------------------------------+
+   |         /-----------/          |            |         /-----------/          |
+   |        /  [X]   [X]/           |            |        / [#] [#] [#]/          |
+   |       /   [X]     /            |   ===>     |       / [#] [#] [#]/           |
+   |      /___________/             |            |      /___________/             |
+   |   (clips boundaries = 0 fit)   |            |   (aligned to axis = 6 fit)    |
+   +--------------------------------+            +--------------------------------+
 ```
 
 ---
 
-## 🚀 Key Features & Performance
+## Key Features and Performance
 
-- **Fast & Vectorized:** Built using NumPy meshgrids and vectorized Shapely C++ geometry operations. Processes thousands of complex parcels in seconds.
-- **Sliver / Narrow Polygon Filter:** Automatically discards narrow corridors and sliver geometries using negative buffer erosion (inscribed circle test) before grid generation, saving compute time.
+- **Fast and Vectorized:** Built using NumPy meshgrids and vectorized Shapely C++ geometry operations. Processes thousands of complex parcels in seconds.
+- **Sliver and Narrow Polygon Filter:** Automatically discards narrow corridors and sliver geometries using negative buffer erosion (inscribed circle test) before grid generation, saving compute time.
 - **Zero Dependencies:** Uses only standard QGIS 3 core libraries (`qgis.core`, `qgis.PyQt`, `numpy`, `shapely`) already bundled with every QGIS installation.
 - **Dual Output Layers:**
   1. **Evaluated Polygons Layer:** Enriches original polygons with capacity metrics (`module_count`, `packed_area_m2`, `coverage_pct`, `capacity_category`).
@@ -50,17 +50,17 @@ Standard GIS tools such as `Create Grid` or `Fishnet` generate fixed, static, ax
 
 ---
 
-## 💡 Practical Applications
+## Practical Applications
 
-- **Urban Planning & Infill Capacity:** Testing housing capacity on vacant urban lots and brownfields using standard house footprints (e.g. 6 × 10 m, 16 × 20 m).
-- **Solar Farm & Agrivoltaic Siting:** Inscribing standard PV table/tracker layouts within irregular field boundaries.
+- **Urban Planning and Infill Capacity:** Testing housing capacity on vacant urban lots and brownfields using standard house footprints (e.g. 6 x 10 m, 16 x 20 m).
+- **Solar Farm and Agrivoltaic Siting:** Inscribing standard PV table/tracker layouts within irregular field boundaries.
 - **Parking Lot Layouts:** Estimating parking bay capacity in complex parcel boundaries.
-- **Modular Housing / Tiny Home Parks:** Rapid spatial feasibility checks for container homes or prefab structures.
-- **Storage & Logistics:** Space utilization analysis in industrial yards and warehouses.
+- **Modular Housing and Tiny Home Parks:** Rapid spatial feasibility checks for container homes or prefab structures.
+- **Storage and Logistics:** Space utilization analysis in industrial yards and warehouses.
 
 ---
 
-## 📥 Installation
+## Installation
 
 No compilation or external pip dependencies required. Works on Windows, macOS, and Linux.
 
@@ -81,7 +81,7 @@ Restart QGIS or right-click the Processing Toolbox and select **Refresh**.
 
 ---
 
-## 🛠️ Parameters & Settings
+## Parameters and Settings
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -96,13 +96,13 @@ Restart QGIS or right-click the Processing Toolbox and select **Refresh**.
 
 ---
 
-## 📊 Output Schema
+## Output Schema
 
 ### 1. Evaluated Polygons Layer (`Evaluated polygons`)
 Contains all original attributes from the input layer plus:
 - `fits_module` *(Integer)*: `1` if at least one module fits completely inside; `0` otherwise.
 - `module_count` *(Integer)*: Maximum number of modules successfully packed.
-- `packed_area_m2` *(Double)*: Total footprint area occupied by placed modules ($m^2$).
+- `packed_area_m2` *(Double)*: Total footprint area occupied by placed modules (m2).
 - `coverage_pct` *(Double)*: Percentage of total parcel area occupied by placed modules (%).
 - `capacity_category` *(String)*: Qualitative classification:
   - `Single module (1 rectangle)`
@@ -110,7 +110,7 @@ Contains all original attributes from the input layer plus:
   - `Medium capacity (6 - 20 rectangles)`
   - `Large capacity (> 20 rectangles)`
   - `Narrow corridor (width < X m)`
-  - `Insufficient area (< X m²)`
+  - `Insufficient area (< X m2)`
 
 ### 2. Packed Rectangles Layer (`Packed rectangles`)
 Individual polygon geometries of each fitted module:
@@ -122,7 +122,7 @@ Individual polygon geometries of each fitted module:
 
 ---
 
-## 🧪 Sample Data & Quick Test
+## Sample Data and Quick Test
 
 A sample test dataset is provided in [`sample_data/sample_parcels.geojson`](sample_data/sample_parcels.geojson) (Projected in EPSG:3857).
 
@@ -132,6 +132,6 @@ A sample test dataset is provided in [`sample_data/sample_parcels.geojson`](samp
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE) - feel free to use, modify, and distribute it in commercial, academic, or open-source projects.
