@@ -1,0 +1,121 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::3857"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 1,
+        "name": "Rotated Rectangular Parcel"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              64.69130015112569,
+              19.16243611140589
+            ],
+            [
+              45.628933925599746,
+              48.515905989495735
+            ],
+            [
+              -4.691300151125695,
+              15.83756388859411
+            ],
+            [
+              14.371066074400254,
+              -13.515905989495733
+            ],
+            [
+              64.69130015112569,
+              19.16243611140589
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 2,
+        "name": "Irregular Infill Lot"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              100.0,
+              0.0
+            ],
+            [
+              180.0,
+              20.0
+            ],
+            [
+              160.0,
+              90.0
+            ],
+            [
+              90.0,
+              70.0
+            ],
+            [
+              100.0,
+              0.0
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": 3,
+        "name": "L-Shaped Corner Lot"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              220.0,
+              0.0
+            ],
+            [
+              280.0,
+              0.0
+            ],
+            [
+              280.0,
+              50.0
+            ],
+            [
+              250.0,
+              50.0
+            ],
+            [
+              250.0,
+              100.0
+            ],
+            [
+              220.0,
+              100.0
+            ],
+            [
+              220.0,
+              0.0
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
