@@ -39,14 +39,31 @@ Standard GIS tools such as `Create Grid` or `Fishnet` generate fixed, static, ax
 
 ---
 
+## Packing Modes
+
+The tool provides two optimization modes to balance urban design realism with raw mathematical packing capacity:
+
+### 1. Structured urban grid (Uniform orientation) - Default
+- Aligns all placed rectangular modules to the primary orientation axis of the parcel.
+- Produces realistic, orderly building rows and street layouts with consistent building lines.
+- Recommended for urban planning, master planning, zoning studies, and residential infill feasibility.
+
+### 2. Maximum greedy fill (Mixed orientations and residual pockets)
+- In addition to placing the primary structured grid, it performs an iterative spatial boolean analysis ($P_{residual} = P \setminus \bigcup R_{grid}$).
+- Evaluates leftover irregular corners, backyards, and residual wings under independent candidate rotation angles.
+- Maximizes the absolute mathematical number of packed rectangles, squeezing 10% to 25% additional capacity into irregular L-shaped, T-shaped, or trapezoidal parcels.
+- Recommended for solar PV layout design, container storage yards, parking optimization, and theoretical density limits.
+
+---
+
 ## Key Features and Performance
 
 - **Fast and Vectorized:** Built using NumPy meshgrids and vectorized Shapely C++ geometry operations. Processes thousands of complex parcels in seconds.
 - **Sliver and Narrow Polygon Filter:** Automatically discards narrow corridors and sliver geometries using negative buffer erosion (inscribed circle test) before grid generation, saving compute time.
 - **Zero Dependencies:** Uses only standard QGIS 3 core libraries (`qgis.core`, `qgis.PyQt`, `numpy`, `shapely`) already bundled with every QGIS installation.
-- **Dual Output Layers:**
-  1. **Evaluated Polygons Layer:** Enriches original polygons with capacity metrics (`module_count`, `packed_area_m2`, `coverage_pct`, `capacity_category`).
-  2. **Packed Rectangles Layer:** Generates individual, properly oriented polygon features for every placed rectangular module.
+- **Dual Output Layers with Placement Classification:**
+  1. **Evaluated Polygons Layer:** Enriches original polygons with capacity metrics (`module_count`, `grid_modules`, `greedy_modules`, `packed_area_m2`, `coverage_pct`, `capacity_category`).
+  2. **Packed Rectangles Layer:** Generates individual, properly oriented polygon features for every placed rectangular module, tagged by placement type (`Grid` vs `Greedy`).
 
 ---
 
@@ -88,6 +105,7 @@ Restart QGIS or right-click the Processing Toolbox and select **Refresh**.
 | **`Input polygon layer`** | Vector (Polygon) | *Required* | Layer containing parcels, lots, or zones to be evaluated. Must use a projected CRS (meters/feet). |
 | **`Rectangle width [m]`** | Distance (Float) | `6.0` | Short side / width of the rectangular module in map CRS units. |
 | **`Rectangle length [m]`** | Distance (Float) | `10.0` | Long side / length of the rectangular module in map CRS units. |
+| **`Packing mode`** | Enum (Option) | `Structured urban grid` | Selection between structured uniform grid (urban design) and maximum greedy fill (mixed orientations). |
 | **`Evaluated polygons`** | Vector Output | `[Create temporary layer]` | Output polygon layer containing original features + capacity attributes. |
 | **`Packed rectangles`** | Vector Output | `[Create temporary layer]` | Output polygon layer with each individual placed module geometry. |
 
@@ -101,7 +119,9 @@ Restart QGIS or right-click the Processing Toolbox and select **Refresh**.
 ### 1. Evaluated Polygons Layer (`Evaluated polygons`)
 Contains all original attributes from the input layer plus:
 - `fits_module` *(Integer)*: `1` if at least one module fits completely inside; `0` otherwise.
-- `module_count` *(Integer)*: Maximum number of modules successfully packed.
+- `module_count` *(Integer)*: Total number of modules packed (`grid_modules + greedy_modules`).
+- `grid_modules` *(Integer)*: Number of modules placed in the primary uniform urban grid.
+- `greedy_modules` *(Integer)*: Number of additional modules packed into irregular residual pockets.
 - `packed_area_m2` *(Double)*: Total footprint area occupied by placed modules (m2).
 - `coverage_pct` *(Double)*: Percentage of total parcel area occupied by placed modules (%).
 - `capacity_category` *(String)*: Qualitative classification:
@@ -119,6 +139,7 @@ Individual polygon geometries of each fitted module:
 - `width_m` *(Double)*: Module width.
 - `length_m` *(Double)*: Module length.
 - `area_m2` *(Double)*: Module surface area.
+- `placement` *(String)*: Placement method (`Grid` for base uniform grid or `Greedy` for residual fill).
 
 ---
 
@@ -128,7 +149,7 @@ A sample test dataset is provided in [`sample_data/sample_parcels.geojson`](samp
 
 1. Drag and drop `sample_parcels.geojson` into QGIS.
 2. Run **Pack oriented rectangles into polygons** with width = `6` and length = `10`.
-3. View the fitted modules immediately aligned to each parcel's unique orientation!
+3. Try both **Structured urban grid** and **Maximum greedy fill** to observe how residual pockets are filled.
 
 ---
 
