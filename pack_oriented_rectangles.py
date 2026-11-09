@@ -206,7 +206,7 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                 candidate_angs = sorted(list(set(candidate_angs + edge_angs)))
 
             cbx1, cby1, cbx2, cby2 = core.bounds
-            step = 2.0 if rem.area > 500.0 else 1.5
+            step = 1.0 if comp.area < 1500.0 else (2.0 if comp.area > 5000.0 else 1.5)
             xs = np.arange(cbx1, cbx2 + step, step)
             ys = np.arange(cby1, cby2 + step, step)
             if len(xs) == 0 or len(ys) == 0:
@@ -357,12 +357,14 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
 
                     # Mode 1: Maximum Greedy Fill in residual pockets
                     if mode == 1:
-                        all_placed = list(grid_rects)
-                        if len(all_placed) > 0:
+                        # Strategy A: Base grid + greedy residual fill
+                        strat_a_grid = list(grid_rects)
+                        strat_a_greedy = []
+                        if len(strat_a_grid) > 0:
                             try:
-                                residual = poly.difference(shapely.unary_union(all_placed))
+                                residual = poly.difference(shapely.unary_union(strat_a_grid))
                             except Exception:
-                                residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(all_placed)))
+                                residual = shapely.make_valid(poly).difference(shapely.make_valid(shapely.unary_union(strat_a_grid)))
                             if not residual.is_valid:
                                 residual = shapely.make_valid(residual)
                         else:
@@ -399,7 +401,7 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                     [(0, 0), (width / 2.0, length / 2.0)]
                                 )
                                 if len(comp_grid) > 0:
-                                    greedy_rects.extend(comp_grid)
+                                    strat_a_greedy.extend(comp_grid)
                                     try:
                                         comp = comp.difference(shapely.unary_union(comp_grid))
                                     except Exception:
@@ -409,7 +411,19 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                             if comp.area >= module_area:
                                 squeezed = self._squeeze_pocket(comp, width, length)
                                 if len(squeezed) > 0:
-                                    greedy_rects.extend(squeezed)
+                                    strat_a_greedy.extend(squeezed)
+
+                        # Strategy B: Pure dense adaptive squeezer (for irregular parcels <= 1500 m2)
+                        strat_b = []
+                        if area <= 1500.0:
+                            strat_b = self._squeeze_pocket(poly, width, length)
+
+                        if len(strat_b) > (len(strat_a_grid) + len(strat_a_greedy)):
+                            grid_rects = []
+                            greedy_rects = strat_b
+                        else:
+                            grid_rects = strat_a_grid
+                            greedy_rects = strat_a_greedy
 
             grid_cnt = len(grid_rects)
             greedy_cnt = len(greedy_rects)
