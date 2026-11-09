@@ -408,7 +408,7 @@ class PackOrientedRectanglesAlgorithm(QgsProcessingAlgorithm):
                                         comp = shapely.make_valid(comp).difference(shapely.make_valid(shapely.unary_union(comp_grid)))
 
                             # Dense core sampling squeezer for irregular pockets
-                            if comp.area >= module_area:
+                            if module_area <= comp.area < 1500.0:
                                 squeezed = self._squeeze_pocket(comp, width, length)
                                 if len(squeezed) > 0:
                                     strat_a_greedy.extend(squeezed)
